@@ -48,7 +48,7 @@ func Signup(c *gin.Context) {
         log.Fatal(err)
     }
 
-    c.String(http.StatusOK, "Account created successfully!")
+    c.Redirect(http.StatusFound, "/")
 }
 
 // Logout handles user logout
