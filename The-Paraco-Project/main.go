@@ -1,12 +1,15 @@
 package main
 
 import (
+    "database/sql"  // Import sql package
     "net/http"
+    "log"
     "github.com/gin-gonic/gin"
     "github.com/gin-contrib/sessions"
     "github.com/gin-contrib/sessions/cookie"
     "The-Paraco-Project/config"
     "The-Paraco-Project/controllers"
+    "The-Paraco-Project/models"
 )
 
 type Address struct {
@@ -17,40 +20,46 @@ type Address struct {
 }
 
 type User struct {
-    Name    string  `json:"name"`
-    Gender  string  `json:"gender"`
-    Address Address `json:"address"`
-    Balance float64 `json:"balance"`
-    Used    int     `json:"used"`
+    Name    string    `json:"name"`
+    Gender  string    `json:"gender"`
+    Address Address   `json:"address"`
+    Used    float64   `json:"used"`
+    Metadata Metadata `json:"metadata"`
 }
 
-func userHandler(c *gin.Context) {
+type Metadata struct {
+    Email string   `json:"email"`
+    Platform uint8 `json:"platform"`
+}
+
+func userHandler(c *gin.Context, db *sql.DB) {
     var user User
-    if err := c.ShouldBindJSON(&user); err != nil { //[arses the json file]
+    if err := c.ShouldBindJSON(&user); err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
-    
-    // Calculate new balance
-    newBalance := user.Balance - float64(user.Used)
 
-    // Create a response object
-    response := gin.H{
-        "name":    user.Name,
-        "gender":  user.Gender,
-        "address": user.Address,
-        "new_balance": newBalance,
+    if user.Metadata.Email == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "The 'email' field is required"})
+        return
     }
 
-    c.JSON(http.StatusCreated, response) // Return the new balance and other user data
-}
+    // Call UpdateBalance and handle errors
+    if err := models.UpdateBalance(db, user.Metadata.Email, user.Used, user.Metadata.Platform); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
 
+    c.JSON(http.StatusCreated, gin.H{"message": "Securly deducted balance"})
+}
 
 func main() {
     // Initialize the database
-    config.InitDB()
+    if err := config.InitDB(); err != nil {
+        log.Fatal("Failed to connect to the database:", err)
+    }
+    defer config.DB.Close() // Close the database connection when main exits
 
-    // Initialize the Gin router
     r := gin.Default()
 
     // Load HTML templates
@@ -68,16 +77,18 @@ func main() {
         c.HTML(http.StatusOK, "welcome.html", nil)
     })
 
-    // Define the GET /signup route to serve the signup page
     r.GET("/signup", func(c *gin.Context) {
-        c.HTML(http.StatusOK, "signup.html", nil) // Serve the signup HTML form
+        c.HTML(http.StatusOK, "signup.html", nil)
     })
 
-    r.POST("/login", controllers.Login)
-    r.POST("/signup", controllers.Signup)
+    r.POST("/login", func(c *gin.Context) {
+        controllers.Login(c, config.DB) 
+    })
+    r.POST("/signup", func(c *gin.Context) {
+        controllers.Signup(c, config.DB) 
+    })
     r.POST("/logout", controllers.Logout)
 
-    // Serve the landing page
     r.GET("/landing", func(c *gin.Context) {
         session := sessions.Default(c)
         username := session.Get("username")
@@ -90,8 +101,15 @@ func main() {
         })
     })
 
+    err := r.SetTrustedProxies([]string{"192.168.1.0/24"}) 
+    if err != nil {
+        panic(err)
+    }
+
     // Define the /users route for handling user data
-    r.POST("/users", userHandler)
+    r.POST("/users", func(c *gin.Context) {
+        userHandler(c, config.DB)
+    })
 
     // Start the server
     r.Run(":8080")

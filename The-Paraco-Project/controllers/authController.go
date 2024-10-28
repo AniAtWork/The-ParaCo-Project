@@ -1,22 +1,22 @@
 package controllers
 
 import (
+    "database/sql"
     "net/http"
     "github.com/gin-gonic/gin"
     "github.com/gin-contrib/sessions"
     "golang.org/x/crypto/bcrypt"
     "log"
-    "The-Paraco-Project/config"
 )
 
 // Login handles the user login
-func Login(c *gin.Context) {
+func Login(c *gin.Context, db *sql.DB) {
     session := sessions.Default(c)
     username := c.PostForm("username")
     password := c.PostForm("password")
 
     var dbPassword string
-    err := config.DB.QueryRow("SELECT password FROM users WHERE username = ?", username).Scan(&dbPassword)
+    err := db.QueryRow("SELECT password FROM users WHERE username = ?", username).Scan(&dbPassword)
     if err != nil {
         c.String(http.StatusUnauthorized, "Invalid login credentials")
         return
@@ -32,7 +32,7 @@ func Login(c *gin.Context) {
 }
 
 // Signup handles user registration
-func Signup(c *gin.Context) {
+func Signup(c *gin.Context, db *sql.DB) {
     username := c.PostForm("username")
     email := c.PostForm("email")
     password := c.PostForm("password")
@@ -43,7 +43,7 @@ func Signup(c *gin.Context) {
         return
     }
 
-    _, err = config.DB.Exec("INSERT INTO users (username, email, password) VALUES (?, ?, ?)", username, email, string(hashedPassword))
+    _, err = db.Exec("INSERT INTO users (username, email, password) VALUES (?, ?, ?)", username, email, string(hashedPassword))
     if err != nil {
         log.Fatal(err)
     }
